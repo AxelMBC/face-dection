@@ -1,122 +1,307 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import * as faceapi from '@vladmandic/face-api'
 import './App.css'
 
-function App() {
-  const [count, setCount] = useState(0)
+const MODEL_URL = '/models'
 
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+function useFaceApi() {
+  const [ready, setReady] = useState(false)
+  const [error, setError] = useState(null)
 
-      <div className="ticks"></div>
+  useEffect(() => {
+    let cancelled = false
+    faceapi.nets.tinyFaceDetector
+      .loadFromUri(MODEL_URL)
+      .then(() => {
+        if (!cancelled) setReady(true)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+  return { ready, error }
 }
 
-export default App
+const SAMPLE_URL =
+  'https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=800'
+
+export default function App() {
+  const { ready: modelReady, error: modelError } = useFaceApi()
+  const [url, setUrl] = useState('')
+  const [submittedUrl, setSubmittedUrl] = useState('')
+  const [status, setStatus] = useState('idle')
+  const [error, setError] = useState(null)
+  const [detections, setDetections] = useState([])
+  const [naturalSize, setNaturalSize] = useState({ w: 0, h: 0 })
+  const [renderSize, setRenderSize] = useState({ w: 0, h: 0 })
+  const imgRef = useRef(null)
+  const stageRef = useRef(null)
+
+  useLayoutEffect(() => {
+    const img = imgRef.current
+    if (!img) return
+    const update = () => {
+      setRenderSize({ w: img.clientWidth, h: img.clientHeight })
+    }
+    const ro = new ResizeObserver(update)
+    ro.observe(img)
+    update()
+    return () => ro.disconnect()
+  }, [submittedUrl, status])
+
+  const onSubmit = (e) => {
+    e.preventDefault()
+    const trimmed = url.trim()
+    if (!trimmed || !modelReady) return
+    setError(null)
+    setDetections([])
+    setNaturalSize({ w: 0, h: 0 })
+    setRenderSize({ w: 0, h: 0 })
+    setStatus('loading')
+    setSubmittedUrl(trimmed)
+  }
+
+  const onImgLoad = async () => {
+    const img = imgRef.current
+    if (!img) return
+    setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight })
+    setRenderSize({ w: img.clientWidth, h: img.clientHeight })
+    setStatus('detecting')
+    try {
+      const opts = new faceapi.TinyFaceDetectorOptions({
+        inputSize: 416,
+        scoreThreshold: 0.5,
+      })
+      const results = await faceapi.detectAllFaces(img, opts)
+      setDetections(results)
+      setStatus('done')
+    } catch (err) {
+      setError(err?.message ?? 'Detection failed')
+      setStatus('error')
+    }
+  }
+
+  const onImgError = () => {
+    setError('Could not load image. Check the URL or its CORS policy.')
+    setStatus('error')
+  }
+
+  const useSample = () => {
+    setUrl(SAMPLE_URL)
+  }
+
+  const scaleX = naturalSize.w ? renderSize.w / naturalSize.w : 1
+  const scaleY = naturalSize.h ? renderSize.h / naturalSize.h : 1
+
+  const modelLabel = modelError
+    ? 'ERROR'
+    : modelReady
+      ? 'READY'
+      : 'LOADING…'
+
+  const statusLabel = (() => {
+    switch (status) {
+      case 'idle':
+        return 'AWAITING INPUT'
+      case 'loading':
+        return 'FETCHING IMAGE'
+      case 'detecting':
+        return 'ANALYZING PIXELS'
+      case 'done':
+        return 'SCAN COMPLETE'
+      case 'error':
+        return 'SCAN FAILED'
+      default:
+        return ''
+    }
+  })()
+
+  return (
+    <div className="shell">
+      <header className="top">
+        <div className="brand">
+          <span className="brand-mark" aria-hidden="true" />
+          <span className="brand-text">NEURAL//FACE.SCANNER</span>
+        </div>
+        <div className="meta">v0.1 · TINY_FACE_DETECTOR · CLIENT-SIDE</div>
+      </header>
+
+      <section className="hero-block">
+        <h1>
+          Detect faces in <span className="accent">any image</span>.
+        </h1>
+        <p className="lede">
+          Paste a public image URL. The model loads in your browser, runs
+          locally, and overlays bounding boxes on every face it finds. No
+          uploads, no servers.
+        </p>
+      </section>
+
+      <form className="input-row" onSubmit={onSubmit}>
+        <span className="input-prefix">URL</span>
+        <input
+          type="url"
+          inputMode="url"
+          placeholder="https://…"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          spellCheck={false}
+          autoComplete="off"
+          required
+        />
+        <button
+          type="submit"
+          className="scan-btn"
+          disabled={!modelReady || !url.trim()}
+        >
+          {modelReady ? '> SCAN' : '> LOADING'}
+        </button>
+      </form>
+
+      <div className="input-foot">
+        <button type="button" className="link-btn" onClick={useSample}>
+          ↳ try a sample
+        </button>
+        <span className="dot" />
+        <span>images must allow CORS (Unsplash, Wikimedia, etc.)</span>
+      </div>
+
+      <section className="workspace">
+        <div
+          ref={stageRef}
+          className={`stage stage-${status}`}
+          data-empty={!submittedUrl}
+        >
+          {!submittedUrl && (
+            <div className="stage-empty">
+              <div className="reticle" aria-hidden="true">
+                <span /><span /><span /><span />
+              </div>
+              <p>NO TARGET LOADED</p>
+              <p className="muted">submit a URL to begin scanning</p>
+            </div>
+          )}
+
+          {submittedUrl && (
+            <div className="canvas">
+              <img
+                ref={imgRef}
+                src={submittedUrl}
+                alt=""
+                crossOrigin="anonymous"
+                onLoad={onImgLoad}
+                onError={onImgError}
+                draggable={false}
+              />
+              <div className="overlay" aria-hidden="true">
+                {detections.map((det, i) => {
+                  const { x, y, width, height } = det.box
+                  return (
+                    <div
+                      key={i}
+                      className="face-box"
+                      style={{
+                        left: x * scaleX,
+                        top: y * scaleY,
+                        width: width * scaleX,
+                        height: height * scaleY,
+                      }}
+                    >
+                      <span className="corner tl" />
+                      <span className="corner tr" />
+                      <span className="corner bl" />
+                      <span className="corner br" />
+                      <span className="tag">
+                        #{String(i + 1).padStart(2, '0')} ·{' '}
+                        {(det.score * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+              {status === 'detecting' && (
+                <div className="scanline" aria-hidden="true" />
+              )}
+            </div>
+          )}
+        </div>
+
+        <aside className="hud">
+          <div className="hud-row">
+            <span className="hud-label">▸ MODEL</span>
+            <span
+              className={`hud-value ${
+                modelError ? 'bad' : modelReady ? 'good' : 'pending'
+              }`}
+            >
+              {modelLabel}
+            </span>
+          </div>
+          <div className="hud-row">
+            <span className="hud-label">▸ STATUS</span>
+            <span className={`hud-value ${status === 'error' ? 'bad' : ''}`}>
+              {statusLabel}
+            </span>
+          </div>
+          <div className="hud-row">
+            <span className="hud-label">▸ SUBJECTS</span>
+            <span className="hud-value">
+              {status === 'done' || status === 'detecting'
+                ? String(detections.length).padStart(2, '0')
+                : '--'}
+            </span>
+          </div>
+          {naturalSize.w > 0 && (
+            <div className="hud-row">
+              <span className="hud-label">▸ RESOLUTION</span>
+              <span className="hud-value muted">
+                {naturalSize.w}×{naturalSize.h}
+              </span>
+            </div>
+          )}
+
+          <div className="hud-divider" />
+
+          {error && <div className="hud-error">! {error}</div>}
+          {modelError && !error && (
+            <div className="hud-error">! Failed to load detection model.</div>
+          )}
+
+          {status === 'done' && detections.length > 0 && (
+            <ol className="face-list">
+              {detections.map((d, i) => (
+                <li key={i}>
+                  <span className="face-list-id">
+                    #{String(i + 1).padStart(2, '0')}
+                  </span>
+                  <span className="face-list-score">
+                    {(d.score * 100).toFixed(1)}%
+                  </span>
+                  <span className="face-list-dim muted">
+                    {Math.round(d.box.width)}×{Math.round(d.box.height)}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+
+          {status === 'done' && detections.length === 0 && (
+            <div className="muted small">
+              No faces detected. Try another image or one with clearer faces.
+            </div>
+          )}
+        </aside>
+      </section>
+
+      <footer className="bottom">
+        <span>RUNNING LOCALLY</span>
+        <span className="dot" />
+        <span>POWERED BY @VLADMANDIC/FACE-API</span>
+      </footer>
+    </div>
+  )
+}
