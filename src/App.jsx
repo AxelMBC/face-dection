@@ -1,124 +1,126 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import * as faceapi from '@vladmandic/face-api'
-import './App.css'
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import * as faceapi from "@vladmandic/face-api";
+import { initBackend } from "./tfBackend";
+import "./App.css";
 
-const MODEL_URL = '/models'
+const MODEL_URL = "/models";
 
 function useFaceApi() {
-  const [ready, setReady] = useState(false)
-  const [error, setError] = useState(null)
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState(null);
+  const [backend, setBackend] = useState(null);
 
   useEffect(() => {
-    let cancelled = false
-    faceapi.nets.tinyFaceDetector
-      .loadFromUri(MODEL_URL)
+    let cancelled = false;
+    initBackend()
+      .then((name) => {
+        if (cancelled) return;
+        setBackend(name);
+        return faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+      })
       .then(() => {
-        if (!cancelled) setReady(true)
+        if (!cancelled) setReady(true);
       })
       .catch((e) => {
-        if (!cancelled) setError(e)
-      })
+        if (!cancelled) setError(e);
+      });
     return () => {
-      cancelled = true
-    }
-  }, [])
+      cancelled = true;
+    };
+  }, []);
 
-  return { ready, error }
+  return { ready, error, backend };
 }
 
 const SAMPLE_URL =
-  'https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=800'
+  "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=800";
 
 export default function App() {
-  const { ready: modelReady, error: modelError } = useFaceApi()
-  const [url, setUrl] = useState('')
-  const [submittedUrl, setSubmittedUrl] = useState('')
-  const [status, setStatus] = useState('idle')
-  const [error, setError] = useState(null)
-  const [detections, setDetections] = useState([])
-  const [naturalSize, setNaturalSize] = useState({ w: 0, h: 0 })
-  const [renderSize, setRenderSize] = useState({ w: 0, h: 0 })
-  const imgRef = useRef(null)
-  const stageRef = useRef(null)
+  const { ready: modelReady, error: modelError, backend } = useFaceApi();
+  const [url, setUrl] = useState("");
+  const [submittedUrl, setSubmittedUrl] = useState("");
+  const [status, setStatus] = useState("idle");
+  const [error, setError] = useState(null);
+  const [detections, setDetections] = useState([]);
+  const [naturalSize, setNaturalSize] = useState({ w: 0, h: 0 });
+  const [renderSize, setRenderSize] = useState({ w: 0, h: 0 });
+  const imgRef = useRef(null);
+  const stageRef = useRef(null);
 
   useLayoutEffect(() => {
-    const img = imgRef.current
-    if (!img) return
+    const img = imgRef.current;
+    if (!img) return;
     const update = () => {
-      setRenderSize({ w: img.clientWidth, h: img.clientHeight })
-    }
-    const ro = new ResizeObserver(update)
-    ro.observe(img)
-    update()
-    return () => ro.disconnect()
-  }, [submittedUrl, status])
+      setRenderSize({ w: img.clientWidth, h: img.clientHeight });
+    };
+    const ro = new ResizeObserver(update);
+    ro.observe(img);
+    update();
+    return () => ro.disconnect();
+  }, [submittedUrl, status]);
 
   const onSubmit = (e) => {
-    e.preventDefault()
-    const trimmed = url.trim()
-    if (!trimmed || !modelReady) return
-    setError(null)
-    setDetections([])
-    setNaturalSize({ w: 0, h: 0 })
-    setRenderSize({ w: 0, h: 0 })
-    setStatus('loading')
-    setSubmittedUrl(trimmed)
-  }
+    e.preventDefault();
+    const trimmed = url.trim();
+    if (!trimmed || !modelReady) return;
+    setError(null);
+    setDetections([]);
+    setNaturalSize({ w: 0, h: 0 });
+    setRenderSize({ w: 0, h: 0 });
+    setStatus("loading");
+    setSubmittedUrl(trimmed);
+  };
 
   const onImgLoad = async () => {
-    const img = imgRef.current
-    if (!img) return
-    setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight })
-    setRenderSize({ w: img.clientWidth, h: img.clientHeight })
-    setStatus('detecting')
+    const img = imgRef.current;
+    if (!img) return;
+    setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
+    setRenderSize({ w: img.clientWidth, h: img.clientHeight });
+    setStatus("detecting");
     try {
       const opts = new faceapi.TinyFaceDetectorOptions({
         inputSize: 416,
         scoreThreshold: 0.5,
-      })
-      const results = await faceapi.detectAllFaces(img, opts)
-      setDetections(results)
-      setStatus('done')
+      });
+      const results = await faceapi.detectAllFaces(img, opts);
+      setDetections(results);
+      setStatus("done");
     } catch (err) {
-      setError(err?.message ?? 'Detection failed')
-      setStatus('error')
+      setError(err?.message ?? "Detection failed");
+      setStatus("error");
     }
-  }
+  };
 
   const onImgError = () => {
-    setError('Could not load image. Check the URL or its CORS policy.')
-    setStatus('error')
-  }
+    setError("Could not load image. Check the URL or its CORS policy.");
+    setStatus("error");
+  };
 
   const useSample = () => {
-    setUrl(SAMPLE_URL)
-  }
+    setUrl(SAMPLE_URL);
+  };
 
-  const scaleX = naturalSize.w ? renderSize.w / naturalSize.w : 1
-  const scaleY = naturalSize.h ? renderSize.h / naturalSize.h : 1
+  const scaleX = naturalSize.w ? renderSize.w / naturalSize.w : 1;
+  const scaleY = naturalSize.h ? renderSize.h / naturalSize.h : 1;
 
-  const modelLabel = modelError
-    ? 'ERROR'
-    : modelReady
-      ? 'READY'
-      : 'LOADING…'
+  const modelLabel = modelError ? "ERROR" : modelReady ? "READY" : "LOADING…";
 
   const statusLabel = (() => {
     switch (status) {
-      case 'idle':
-        return 'AWAITING INPUT'
-      case 'loading':
-        return 'FETCHING IMAGE'
-      case 'detecting':
-        return 'ANALYZING PIXELS'
-      case 'done':
-        return 'SCAN COMPLETE'
-      case 'error':
-        return 'SCAN FAILED'
+      case "idle":
+        return "AWAITING INPUT";
+      case "loading":
+        return "FETCHING IMAGE";
+      case "detecting":
+        return "ANALYZING PIXELS";
+      case "done":
+        return "SCAN COMPLETE";
+      case "error":
+        return "SCAN FAILED";
       default:
-        return ''
+        return "";
     }
-  })()
+  })();
 
   return (
     <div className="shell">
@@ -158,7 +160,7 @@ export default function App() {
           className="scan-btn"
           disabled={!modelReady || !url.trim()}
         >
-          {modelReady ? '> SCAN' : '> LOADING'}
+          {modelReady ? "> SCAN" : "> LOADING"}
         </button>
       </form>
 
@@ -179,7 +181,10 @@ export default function App() {
           {!submittedUrl && (
             <div className="stage-empty">
               <div className="reticle" aria-hidden="true">
-                <span /><span /><span /><span />
+                <span />
+                <span />
+                <span />
+                <span />
               </div>
               <p>NO TARGET LOADED</p>
               <p className="muted">submit a URL to begin scanning</p>
@@ -199,7 +204,7 @@ export default function App() {
               />
               <div className="overlay" aria-hidden="true">
                 {detections.map((det, i) => {
-                  const { x, y, width, height } = det.box
+                  const { x, y, width, height } = det.box;
                   return (
                     <div
                       key={i}
@@ -216,14 +221,14 @@ export default function App() {
                       <span className="corner bl" />
                       <span className="corner br" />
                       <span className="tag">
-                        #{String(i + 1).padStart(2, '0')} ·{' '}
+                        #{String(i + 1).padStart(2, "0")} ·{" "}
                         {(det.score * 100).toFixed(1)}%
                       </span>
                     </div>
-                  )
+                  );
                 })}
               </div>
-              {status === 'detecting' && (
+              {status === "detecting" && (
                 <div className="scanline" aria-hidden="true" />
               )}
             </div>
@@ -235,24 +240,30 @@ export default function App() {
             <span className="hud-label">▸ MODEL</span>
             <span
               className={`hud-value ${
-                modelError ? 'bad' : modelReady ? 'good' : 'pending'
+                modelError ? "bad" : modelReady ? "good" : "pending"
               }`}
             >
               {modelLabel}
             </span>
           </div>
           <div className="hud-row">
+            <span className="hud-label">▸ BACKEND</span>
+            <span className={`hud-value ${backend ? "good" : "pending"}`}>
+              {backend ? backend.toUpperCase() : "…"}
+            </span>
+          </div>
+          <div className="hud-row">
             <span className="hud-label">▸ STATUS</span>
-            <span className={`hud-value ${status === 'error' ? 'bad' : ''}`}>
+            <span className={`hud-value ${status === "error" ? "bad" : ""}`}>
               {statusLabel}
             </span>
           </div>
           <div className="hud-row">
             <span className="hud-label">▸ SUBJECTS</span>
             <span className="hud-value">
-              {status === 'done' || status === 'detecting'
-                ? String(detections.length).padStart(2, '0')
-                : '--'}
+              {status === "done" || status === "detecting"
+                ? String(detections.length).padStart(2, "0")
+                : "--"}
             </span>
           </div>
           {naturalSize.w > 0 && (
@@ -271,12 +282,12 @@ export default function App() {
             <div className="hud-error">! Failed to load detection model.</div>
           )}
 
-          {status === 'done' && detections.length > 0 && (
+          {status === "done" && detections.length > 0 && (
             <ol className="face-list">
               {detections.map((d, i) => (
                 <li key={i}>
                   <span className="face-list-id">
-                    #{String(i + 1).padStart(2, '0')}
+                    #{String(i + 1).padStart(2, "0")}
                   </span>
                   <span className="face-list-score">
                     {(d.score * 100).toFixed(1)}%
@@ -289,7 +300,7 @@ export default function App() {
             </ol>
           )}
 
-          {status === 'done' && detections.length === 0 && (
+          {status === "done" && detections.length === 0 && (
             <div className="muted small">
               No faces detected. Try another image or one with clearer faces.
             </div>
@@ -325,5 +336,5 @@ export default function App() {
         </span>
       </a>
     </div>
-  )
+  );
 }
